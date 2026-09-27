@@ -1,0 +1,21 @@
+# Terraform
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+
+# Secrets
+*.pem
+*.key
+.env
+
+# Go
+app/devops-dashboard.exe
+
+# OS
+.DS_Store
+Thumbs.db
