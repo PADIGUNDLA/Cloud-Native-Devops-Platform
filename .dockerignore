@@ -1,0 +1,8 @@
+.git
+.gitignore
+docs
+terraform
+ansible
+helm
+app/devops-dashboard.exe
+README.md
