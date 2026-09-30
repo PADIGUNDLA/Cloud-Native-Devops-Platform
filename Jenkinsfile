@@ -73,34 +73,39 @@ pipeline {
             steps {
                 container('docker') {
                     sh '''
-                        echo "===== Docker Hub Registry Test ====="
+                        echo "===== Docker Hub Authentication Diagnostic ====="
 
+                        echo ""
                         echo "1. Registry endpoint:"
 
-                        wget -S -O - \
+                        wget -S -O /dev/null \
                           https://registry-1.docker.io/v2/ \
-                          || true
+                          2>&1 || true
 
                         echo ""
-                        echo "2. Authentication endpoint:"
+                        echo "2. Authentication service:"
 
-                        wget -S -O - \
+                        wget -S -O /dev/null \
                           "https://auth.docker.io/token?service=registry.docker.io" \
-                          2>&1 | head -c 1000 \
-                          || true
+                          2>&1 || true
 
                         echo ""
-                        echo "3. Docker daemon registry configuration:"
+                        echo "3. Docker daemon environment:"
 
-                        docker info | grep -A5 -i "Registry" || true
+                        env | grep -E 'DOCKER|HTTP_PROXY|HTTPS_PROXY|NO_PROXY' || true
 
                         echo ""
-                        echo "4. Docker daemon version:"
+                        echo "4. Docker daemon info:"
+
+                        docker info
+
+                        echo ""
+                        echo "5. Docker daemon version:"
 
                         docker version
 
                         echo ""
-                        echo "===== End Docker Hub Test ====="
+                        echo "===== End Diagnostic ====="
                     '''
                 }
             }
