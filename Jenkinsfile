@@ -69,85 +69,77 @@ pipeline {
             }
         }
 
-       stage('Docker Hub Connectivity Test') {
-    steps {
-        container('docker') {
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'dockerhub-credentials',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
-                    passwordVariable: 'DOCKERHUB_TOKEN'
-                )
-            ]) {
-                sh '''
-                    echo "===== Docker Hub Credential Diagnostic ====="
+        stage('Docker Hub Credential Test') {
+            steps {
+                container('docker') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-credentials',
+                            usernameVariable: 'DOCKERHUB_USERNAME',
+                            passwordVariable: 'DOCKERHUB_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            echo "===== Docker Hub Credential Test ====="
 
-                    echo ""
-                    echo "1. Registry endpoint:"
-                    wget -S -O /dev/null \
-                      https://registry-1.docker.io/v2/ \
-                      2>&1 || true
+                            echo ""
+                            echo "Testing Docker Hub authentication..."
 
-                    echo ""
-                    echo "2. Testing Docker Hub authentication with Jenkins credential..."
+                            wget \
+                              --user="$DOCKERHUB_USERNAME" \
+                              --password="$DOCKERHUB_TOKEN" \
+                              -S \
+                              -O /dev/null \
+                              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:padigundla/devops-dashboard:pull,push" \
+                              2>&1
 
-                    wget \
-                      --user="$DOCKERHUB_USERNAME" \
-                      --password="$DOCKERHUB_TOKEN" \
-                      -S \
-                      -O /dev/null \
-                      "https://auth.docker.io/token?service=registry.docker.io&scope=repository:padigundla/devops-dashboard:pull,push" \
-                      2>&1
+                            AUTH_RESULT=$?
 
-                    AUTH_RESULT=$?
+                            echo ""
+                            echo "Authentication test exit code: $AUTH_RESULT"
 
-                    echo ""
-                    echo "Authentication test exit code: $AUTH_RESULT"
+                            if [ "$AUTH_RESULT" -ne 0 ]; then
+                                echo "ERROR: Docker Hub rejected the Jenkins credential."
+                                exit 1
+                            fi
 
-                    if [ "$AUTH_RESULT" -ne 0 ]; then
-                        echo "ERROR: Docker Hub rejected the Jenkins credential."
-                        exit 1
-                    fi
+                            echo "Docker Hub credential authentication succeeded."
 
-                    echo ""
-                    echo "Docker Hub credential authentication succeeded."
+                            echo ""
+                            echo "Docker daemon version:"
+                            docker version
 
-                    echo ""
-                    echo "3. Docker daemon environment:"
-                    env | grep -E 'DOCKER|HTTP_PROXY|HTTPS_PROXY|NO_PROXY' || true
-
-                    echo ""
-                    echo "4. Docker daemon version:"
-                    docker version
-
-                    echo ""
-                    echo "===== End Diagnostic ====="
-                '''
+                            echo ""
+                            echo "===== End Credential Test ====="
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
-stage('Docker Push') {
-    steps {
-        container('docker') {
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'dockerhub-credentials',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
-                    passwordVariable: 'DOCKERHUB_TOKEN'
-                )
-            ]) {
-                sh '''
-                    echo "$DOCKERHUB_TOKEN" | docker login \
-                      -u "$DOCKERHUB_USERNAME" \
-                      --password-stdin
+        stage('Docker Push') {
+            steps {
+                container('docker') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-credentials',
+                            usernameVariable: 'DOCKERHUB_USERNAME',
+                            passwordVariable: 'DOCKERHUB_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            echo "$DOCKERHUB_TOKEN" | docker login docker.io \
+                              -u "$DOCKERHUB_USERNAME" \
+                              --password-stdin
 
-                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                    docker push ${IMAGE_NAME}:latest
+                            docker push ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    docker logout
-                '''
+                            docker push ${IMAGE_NAME}:latest
+
+                            docker logout
+                        '''
+                    }
+                }
             }
         }
     }
