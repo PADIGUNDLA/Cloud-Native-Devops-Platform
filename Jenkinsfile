@@ -20,6 +20,10 @@ pipeline {
             steps {
                 container('docker') {
                     sh '''
+                        set -e
+
+                        echo "===== Docker Build ====="
+
                         echo "Waiting for Docker daemon..."
 
                         READY=false
@@ -40,14 +44,20 @@ pipeline {
                             exit 1
                         fi
 
-                        docker info
+                        echo ""
+                        echo "Docker version:"
+                        docker version
 
+                        echo ""
                         echo "Building Docker image..."
 
                         docker build \
                           -t ${IMAGE_NAME}:${IMAGE_TAG} \
                           -t ${IMAGE_NAME}:latest \
                           .
+
+                        echo ""
+                        echo "Docker image build completed successfully."
                     '''
                 }
             }
@@ -57,99 +67,64 @@ pipeline {
             steps {
                 container('docker') {
                     sh '''
+                        set -e
+
+                        echo "===== Docker Image Test ====="
+
+                        echo ""
                         echo "Docker images:"
                         docker images ${IMAGE_NAME}
 
+                        echo ""
                         echo "Testing image..."
 
-                        docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} \
+                        docker run --rm \
+                          ${IMAGE_NAME}:${IMAGE_TAG} \
                           sh -c "echo Container started successfully"
+
+                        echo ""
+                        echo "Docker image test passed."
                     '''
                 }
             }
         }
-        
-stage('Docker Hub Credential Test') {
-    steps {
-        container('docker') {
 
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'dockerhub-credentials',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
-                    passwordVariable: 'DOCKERHUB_TOKEN'
-                )
-            ]) {
+        stage('Docker Hub Login') {
+            steps {
+                container('docker') {
 
-                sh '''
-                    echo "===== Docker Hub Credential Test ====="
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-credentials',
+                            usernameVariable: 'DOCKERHUB_USERNAME',
+                            passwordVariable: 'DOCKERHUB_TOKEN'
+                        )
+                    ]) {
 
-                    echo ""
-                    echo "Installing curl..."
+                        sh '''
+                            set -e
 
-                    apk add --no-cache curl >/dev/null 2>&1
+                            echo "===== Docker Hub Login ====="
 
-                    echo ""
-                    echo "Docker Hub username:"
-                    echo "$DOCKERHUB_USERNAME"
+                            echo ""
+                            echo "Docker Hub username:"
+                            echo "$DOCKERHUB_USERNAME"
 
-                    echo ""
-                    echo "Creating authentication request..."
+                            echo ""
+                            echo "Logging in to Docker Hub..."
 
-                    cat > /tmp/docker-auth.json <<EOF
-{
-  "identifier": "${DOCKERHUB_USERNAME}",
-  "secret": "${DOCKERHUB_TOKEN}"
-}
-EOF
+                            printf '%s' "$DOCKERHUB_TOKEN" | \
+                                docker login \
+                                --username "$DOCKERHUB_USERNAME" \
+                                --password-stdin
 
-                    echo ""
-                    echo "Testing Docker Hub authentication..."
-
-                    HTTP_CODE=$(curl \
-                      --silent \
-                      --show-error \
-                      --output /tmp/docker-auth-response.json \
-                      --write-out "%{http_code}" \
-                      --request POST \
-                      --header "Accept: application/json" \
-                      --header "Content-Type: application/json" \
-                      --data-binary @/tmp/docker-auth.json \
-                      https://hub.docker.com/v2/auth/token)
-
-                    echo ""
-                    echo "Docker Hub HTTP status: $HTTP_CODE"
-
-                    echo ""
-                    echo "Docker Hub response:"
-
-                    cat /tmp/docker-auth-response.json
-
-                    echo ""
-
-                    rm -f /tmp/docker-auth.json
-                    rm -f /tmp/docker-auth-response.json
-
-                    if [ "$HTTP_CODE" != "200" ]; then
-                        echo ""
-                        echo "ERROR: Docker Hub authentication failed."
-                        exit 1
-                    fi
-
-                    echo ""
-                    echo "Docker Hub authentication succeeded."
-
-                    echo ""
-                    echo "Docker daemon version:"
-                    docker version
-
-                    echo ""
-                    echo "===== Credential Test Passed ====="
-                '''
+                            echo ""
+                            echo "Docker Hub authentication successful."
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Docker Push') {
             steps {
@@ -168,31 +143,16 @@ EOF
 
                             echo "===== Docker Hub Push ====="
 
-                            mkdir -p "$HOME/.docker"
+                            echo ""
+                            echo "Logging in to Docker Hub..."
 
-                            AUTH=$(printf '%s:%s' \
-                              "$DOCKERHUB_USERNAME" \
-                              "$DOCKERHUB_TOKEN" | base64 | tr -d '\\n')
+                            printf '%s' "$DOCKERHUB_TOKEN" | \
+                                docker login \
+                                --username "$DOCKERHUB_USERNAME" \
+                                --password-stdin
 
-                            cat > "$HOME/.docker/config.json" <<EOF
-{
-  "auths": {
-    "https://index.docker.io/v1/": {
-      "auth": "$AUTH"
-    },
-    "https://registry-1.docker.io": {
-      "auth": "$AUTH"
-    },
-    "docker.io": {
-      "auth": "$AUTH"
-    }
-  }
-}
-EOF
-
-                            chmod 600 "$HOME/.docker/config.json"
-
-                            echo "Docker authentication configuration created."
+                            echo ""
+                            echo "Docker Hub login successful."
 
                             echo ""
                             echo "Pushing image:"
@@ -208,11 +168,12 @@ EOF
                             echo ""
                             echo "Docker images pushed successfully."
 
-                            rm -f "$HOME/.docker/config.json"
+                            echo ""
+                            echo "Logging out of Docker Hub..."
+
+                            docker logout
 
                             echo ""
-                            echo "Docker authentication configuration removed."
-
                             echo "===== Docker Hub Push Complete ====="
                         '''
                     }
@@ -225,19 +186,30 @@ EOF
         always {
             container('docker') {
                 sh '''
+                    echo "Cleaning temporary Docker authentication data..."
+
+                    docker logout >/dev/null 2>&1 || true
+
                     rm -f "$HOME/.docker/config.json" 2>/dev/null || true
-                    rm -f /tmp/docker-auth.json 2>/dev/null || true
-                    rm -f /tmp/docker-auth-response.json 2>/dev/null || true
+
+                    echo "Cleanup completed."
                 '''
             }
         }
 
         success {
-            echo 'CI pipeline completed successfully.'
+            echo '========================================'
+            echo 'CI PIPELINE COMPLETED SUCCESSFULLY'
+            echo '========================================'
+            echo "Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Docker image: ${IMAGE_NAME}:latest"
         }
 
         failure {
-            echo 'CI pipeline failed. Check the stage logs above.'
+            echo '========================================'
+            echo 'CI PIPELINE FAILED'
+            echo '========================================'
+            echo 'Check the failed stage above.'
         }
     }
 }
