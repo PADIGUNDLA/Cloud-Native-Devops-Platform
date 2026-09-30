@@ -72,6 +72,7 @@ pipeline {
         stage('Docker Hub Credential Test') {
             steps {
                 container('docker') {
+
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'dockerhub-credentials',
@@ -79,36 +80,49 @@ pipeline {
                             passwordVariable: 'DOCKERHUB_TOKEN'
                         )
                     ]) {
+
                         sh '''
                             echo "===== Docker Hub Credential Test ====="
 
                             echo ""
                             echo "Installing curl..."
 
-                            apk add --no-cache curl >/dev/null
+                            apk add --no-cache curl >/dev/null 2>&1
+
+                            echo ""
+                            echo "Creating authentication request..."
+
+                            cat > /tmp/docker-auth.json <<EOF
+{
+  "identifier": "${DOCKERHUB_USERNAME}",
+  "secret": "${DOCKERHUB_TOKEN}"
+}
+EOF
 
                             echo ""
                             echo "Testing Docker Hub PAT..."
 
-                            HTTP_CODE=$(curl -s \
-                              -o /tmp/docker-auth-response.json \
-                              -w "%{http_code}" \
-                              -X POST \
-                              -H "Content-Type: application/json" \
-                              -d "{\"identifier\":\"$DOCKERHUB_USERNAME\",\"secret\":\"$DOCKERHUB_TOKEN\"}" \
+                            HTTP_CODE=$(curl \
+                              --silent \
+                              --output /tmp/docker-auth-response.json \
+                              --write-out "%{http_code}" \
+                              --request POST \
+                              --header "Accept: application/json" \
+                              --header "Content-Type: application/json" \
+                              --data-binary @/tmp/docker-auth.json \
                               https://hub.docker.com/v2/auth/token)
 
                             echo "Docker Hub authentication HTTP status: $HTTP_CODE"
 
+                            rm -f /tmp/docker-auth.json
+                            rm -f /tmp/docker-auth-response.json
+
                             if [ "$HTTP_CODE" != "200" ]; then
                                 echo "ERROR: Docker Hub rejected the Jenkins credential."
-                                rm -f /tmp/docker-auth-response.json
                                 exit 1
                             fi
 
-                            echo "Docker Hub PAT is valid."
-
-                            rm -f /tmp/docker-auth-response.json
+                            echo "Docker Hub PAT authentication succeeded."
 
                             echo ""
                             echo "Testing Docker registry endpoint..."
@@ -119,6 +133,7 @@ pipeline {
 
                             echo ""
                             echo "Docker daemon version:"
+
                             docker version
 
                             echo ""
@@ -132,6 +147,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 container('docker') {
+
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'dockerhub-credentials',
@@ -139,7 +155,10 @@ pipeline {
                             passwordVariable: 'DOCKERHUB_TOKEN'
                         )
                     ]) {
+
                         sh '''
+                            set -e
+
                             echo "===== Docker Hub Push ====="
 
                             mkdir -p "$HOME/.docker"
@@ -192,6 +211,26 @@ EOF
                     }
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            container('docker') {
+                sh '''
+                    rm -f "$HOME/.docker/config.json" 2>/dev/null || true
+                    rm -f /tmp/docker-auth.json 2>/dev/null || true
+                    rm -f /tmp/docker-auth-response.json 2>/dev/null || true
+                '''
+            }
+        }
+
+        success {
+            echo 'CI pipeline completed successfully.'
+        }
+
+        failure {
+            echo 'CI pipeline failed. Check the stage logs above.'
         }
     }
 }
