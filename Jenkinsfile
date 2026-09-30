@@ -22,9 +22,12 @@ pipeline {
                     sh '''
                         echo "Waiting for Docker daemon..."
 
+                        READY=false
+
                         for i in $(seq 1 30); do
                             if docker info >/dev/null 2>&1; then
                                 echo "Docker daemon is ready!"
+                                READY=true
                                 break
                             fi
 
@@ -32,9 +35,15 @@ pipeline {
                             sleep 2
                         done
 
+                        if [ "$READY" != "true" ]; then
+                            echo "ERROR: Docker daemon did not become ready."
+                            exit 1
+                        fi
+
                         docker info
 
                         echo "Building Docker image..."
+
                         docker build \
                           -t ${IMAGE_NAME}:${IMAGE_TAG} \
                           -t ${IMAGE_NAME}:latest \
@@ -52,8 +61,26 @@ pipeline {
                         docker images ${IMAGE_NAME}
 
                         echo "Testing image..."
+
                         docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} \
                           sh -c "echo Container started successfully"
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Hub Connectivity Test') {
+            steps {
+                container('docker') {
+                    sh '''
+                        echo "Testing Docker Hub registry..."
+
+                        wget -S -O - https://registry-1.docker.io/v2/ || true
+
+                        echo "Testing Docker Hub authentication endpoint..."
+
+                        wget -S -O - \
+                          "https://auth.docker.io/token?service=registry.docker.io" || true
                     '''
                 }
             }
