@@ -68,81 +68,88 @@ pipeline {
                 }
             }
         }
+        
+stage('Docker Hub Credential Test') {
+    steps {
+        container('docker') {
 
-        stage('Docker Hub Credential Test') {
-            steps {
-                container('docker') {
+            withCredentials([
+                usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_TOKEN'
+                )
+            ]) {
 
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'dockerhub-credentials',
-                            usernameVariable: 'DOCKERHUB_USERNAME',
-                            passwordVariable: 'DOCKERHUB_TOKEN'
-                        )
-                    ]) {
+                sh '''
+                    echo "===== Docker Hub Credential Test ====="
 
-                        sh '''
-                            echo "===== Docker Hub Credential Test ====="
+                    echo ""
+                    echo "Installing curl..."
 
-                            echo ""
-                            echo "Installing curl..."
+                    apk add --no-cache curl >/dev/null 2>&1
 
-                            apk add --no-cache curl >/dev/null 2>&1
+                    echo ""
+                    echo "Docker Hub username:"
+                    echo "$DOCKERHUB_USERNAME"
 
-                            echo ""
-                            echo "Creating authentication request..."
+                    echo ""
+                    echo "Creating authentication request..."
 
-                            cat > /tmp/docker-auth.json <<EOF
+                    cat > /tmp/docker-auth.json <<EOF
 {
   "identifier": "${DOCKERHUB_USERNAME}",
   "secret": "${DOCKERHUB_TOKEN}"
 }
 EOF
 
-                            echo ""
-                            echo "Testing Docker Hub PAT..."
+                    echo ""
+                    echo "Testing Docker Hub authentication..."
 
-                            HTTP_CODE=$(curl \
-                              --silent \
-                              --output /tmp/docker-auth-response.json \
-                              --write-out "%{http_code}" \
-                              --request POST \
-                              --header "Accept: application/json" \
-                              --header "Content-Type: application/json" \
-                              --data-binary @/tmp/docker-auth.json \
-                              https://hub.docker.com/v2/auth/token)
+                    HTTP_CODE=$(curl \
+                      --silent \
+                      --show-error \
+                      --output /tmp/docker-auth-response.json \
+                      --write-out "%{http_code}" \
+                      --request POST \
+                      --header "Accept: application/json" \
+                      --header "Content-Type: application/json" \
+                      --data-binary @/tmp/docker-auth.json \
+                      https://hub.docker.com/v2/auth/token)
 
-                            echo "Docker Hub authentication HTTP status: $HTTP_CODE"
+                    echo ""
+                    echo "Docker Hub HTTP status: $HTTP_CODE"
 
-                            rm -f /tmp/docker-auth.json
-                            rm -f /tmp/docker-auth-response.json
+                    echo ""
+                    echo "Docker Hub response:"
 
-                            if [ "$HTTP_CODE" != "200" ]; then
-                                echo "ERROR: Docker Hub rejected the Jenkins credential."
-                                exit 1
-                            fi
+                    cat /tmp/docker-auth-response.json
 
-                            echo "Docker Hub PAT authentication succeeded."
+                    echo ""
 
-                            echo ""
-                            echo "Testing Docker registry endpoint..."
+                    rm -f /tmp/docker-auth.json
+                    rm -f /tmp/docker-auth-response.json
 
-                            wget -S -O /dev/null \
-                              https://registry-1.docker.io/v2/ \
-                              2>&1 || true
+                    if [ "$HTTP_CODE" != "200" ]; then
+                        echo ""
+                        echo "ERROR: Docker Hub authentication failed."
+                        exit 1
+                    fi
 
-                            echo ""
-                            echo "Docker daemon version:"
+                    echo ""
+                    echo "Docker Hub authentication succeeded."
 
-                            docker version
+                    echo ""
+                    echo "Docker daemon version:"
+                    docker version
 
-                            echo ""
-                            echo "===== Credential Test Passed ====="
-                        '''
-                    }
-                }
+                    echo ""
+                    echo "===== Credential Test Passed ====="
+                '''
             }
         }
+    }
+}
 
         stage('Docker Push') {
             steps {
