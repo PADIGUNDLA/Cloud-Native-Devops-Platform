@@ -83,31 +83,36 @@ pipeline {
                             echo "===== Docker Hub Credential Test ====="
 
                             echo ""
-                            echo "Testing Docker Hub authentication..."
+                            echo "Testing Docker Hub login..."
 
-                            wget \
-                              --user="$DOCKERHUB_USERNAME" \
-                              --password="$DOCKERHUB_TOKEN" \
-                              -S \
-                              -O /dev/null \
-                              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:padigundla/devops-dashboard:pull,push" \
-                              2>&1
+                            set +e
 
-                            AUTH_RESULT=$?
+                            printf '%s' "$DOCKERHUB_TOKEN" | \
+                              docker login docker.io \
+                              --username "$DOCKERHUB_USERNAME" \
+                              --password-stdin
+
+                            LOGIN_RESULT=$?
+
+                            set -e
 
                             echo ""
-                            echo "Authentication test exit code: $AUTH_RESULT"
+                            echo "Docker login exit code: $LOGIN_RESULT"
 
-                            if [ "$AUTH_RESULT" -ne 0 ]; then
-                                echo "ERROR: Docker Hub rejected the Jenkins credential."
+                            if [ "$LOGIN_RESULT" -ne 0 ]; then
+                                echo "ERROR: Docker Hub login failed."
                                 exit 1
                             fi
 
-                            echo "Docker Hub credential authentication succeeded."
+                            echo "Docker Hub login succeeded."
 
                             echo ""
                             echo "Docker daemon version:"
                             docker version
+
+                            echo ""
+                            echo "Logging out..."
+                            docker logout docker.io
 
                             echo ""
                             echo "===== End Credential Test ====="
@@ -128,15 +133,24 @@ pipeline {
                         )
                     ]) {
                         sh '''
-                            echo "$DOCKERHUB_TOKEN" | docker login docker.io \
-                              -u "$DOCKERHUB_USERNAME" \
+                            echo "Logging in to Docker Hub..."
+
+                            printf '%s' "$DOCKERHUB_TOKEN" | \
+                              docker login docker.io \
+                              --username "$DOCKERHUB_USERNAME" \
                               --password-stdin
+
+                            echo "Pushing image ${IMAGE_NAME}:${IMAGE_TAG}..."
 
                             docker push ${IMAGE_NAME}:${IMAGE_TAG}
 
+                            echo "Pushing latest image..."
+
                             docker push ${IMAGE_NAME}:latest
 
-                            docker logout
+                            echo "Logging out..."
+
+                            docker logout docker.io
                         '''
                     }
                 }
