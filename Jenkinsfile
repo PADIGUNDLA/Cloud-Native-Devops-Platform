@@ -1,4 +1,3 @@
-```groovy
 pipeline {
     agent {
         label 'docker-agent'
@@ -86,4 +85,3 @@ pipeline {
         }
     }
 }
-```
