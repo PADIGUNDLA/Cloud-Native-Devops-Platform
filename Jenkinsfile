@@ -88,7 +88,41 @@ pipeline {
                 }
             }
         }
+stage('Trivy Security Scan') {
+    steps {
+        container('docker') {
+            sh '''
+                set -e
 
+                echo "===== Trivy Security Scan ====="
+
+                echo "Installing Trivy..."
+
+                apk add --no-cache curl
+
+                curl -sfL \
+                  https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                  | sh -s -- -b /usr/local/bin
+
+                echo ""
+                echo "Trivy version:"
+                trivy --version
+
+                echo ""
+                echo "Scanning Docker image:"
+                echo "${IMAGE_NAME}:${IMAGE_TAG}"
+
+                trivy image \
+                  --severity HIGH,CRITICAL \
+                  --exit-code 1 \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
+
+                echo ""
+                echo "Trivy security scan passed."
+            '''
+        }
+    }
+}
         stage('Docker Hub Login') {
             steps {
                 container('docker') {
