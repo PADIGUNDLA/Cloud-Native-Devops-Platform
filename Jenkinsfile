@@ -83,39 +83,46 @@ pipeline {
                             echo "===== Docker Hub Credential Test ====="
 
                             echo ""
-                            echo "Testing Docker Hub login..."
+                            echo "Installing curl..."
 
-                            set +e
-
-                            printf '%s' "$DOCKERHUB_TOKEN" | \
-                              docker login docker.io \
-                              --username "$DOCKERHUB_USERNAME" \
-                              --password-stdin
-
-                            LOGIN_RESULT=$?
-
-                            set -e
+                            apk add --no-cache curl >/dev/null
 
                             echo ""
-                            echo "Docker login exit code: $LOGIN_RESULT"
+                            echo "Testing Docker Hub PAT..."
 
-                            if [ "$LOGIN_RESULT" -ne 0 ]; then
-                                echo "ERROR: Docker Hub login failed."
+                            HTTP_CODE=$(curl -s \
+                              -o /tmp/docker-auth-response.json \
+                              -w "%{http_code}" \
+                              -X POST \
+                              -H "Content-Type: application/json" \
+                              -d "{\"identifier\":\"$DOCKERHUB_USERNAME\",\"secret\":\"$DOCKERHUB_TOKEN\"}" \
+                              https://hub.docker.com/v2/auth/token)
+
+                            echo "Docker Hub authentication HTTP status: $HTTP_CODE"
+
+                            if [ "$HTTP_CODE" != "200" ]; then
+                                echo "ERROR: Docker Hub rejected the Jenkins credential."
+                                rm -f /tmp/docker-auth-response.json
                                 exit 1
                             fi
 
-                            echo "Docker Hub login succeeded."
+                            echo "Docker Hub PAT is valid."
+
+                            rm -f /tmp/docker-auth-response.json
+
+                            echo ""
+                            echo "Testing Docker registry endpoint..."
+
+                            wget -S -O /dev/null \
+                              https://registry-1.docker.io/v2/ \
+                              2>&1 || true
 
                             echo ""
                             echo "Docker daemon version:"
                             docker version
 
                             echo ""
-                            echo "Logging out..."
-                            docker logout docker.io
-
-                            echo ""
-                            echo "===== End Credential Test ====="
+                            echo "===== Credential Test Passed ====="
                         '''
                     }
                 }
@@ -133,24 +140,54 @@ pipeline {
                         )
                     ]) {
                         sh '''
-                            echo "Logging in to Docker Hub..."
+                            echo "===== Docker Hub Push ====="
 
-                            printf '%s' "$DOCKERHUB_TOKEN" | \
-                              docker login docker.io \
-                              --username "$DOCKERHUB_USERNAME" \
-                              --password-stdin
+                            mkdir -p "$HOME/.docker"
 
-                            echo "Pushing image ${IMAGE_NAME}:${IMAGE_TAG}..."
+                            AUTH=$(printf '%s:%s' \
+                              "$DOCKERHUB_USERNAME" \
+                              "$DOCKERHUB_TOKEN" | base64 | tr -d '\\n')
+
+                            cat > "$HOME/.docker/config.json" <<EOF
+{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "auth": "$AUTH"
+    },
+    "https://registry-1.docker.io": {
+      "auth": "$AUTH"
+    },
+    "docker.io": {
+      "auth": "$AUTH"
+    }
+  }
+}
+EOF
+
+                            chmod 600 "$HOME/.docker/config.json"
+
+                            echo "Docker authentication configuration created."
+
+                            echo ""
+                            echo "Pushing image:"
+                            echo "${IMAGE_NAME}:${IMAGE_TAG}"
 
                             docker push ${IMAGE_NAME}:${IMAGE_TAG}
 
+                            echo ""
                             echo "Pushing latest image..."
 
                             docker push ${IMAGE_NAME}:latest
 
-                            echo "Logging out..."
+                            echo ""
+                            echo "Docker images pushed successfully."
 
-                            docker logout docker.io
+                            rm -f "$HOME/.docker/config.json"
+
+                            echo ""
+                            echo "Docker authentication configuration removed."
+
+                            echo "===== Docker Hub Push Complete ====="
                         '''
                     }
                 }
