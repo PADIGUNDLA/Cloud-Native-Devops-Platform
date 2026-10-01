@@ -295,6 +295,22 @@ pipeline {
                         kubectl get deployment -n default
 
                         echo ""
+                        echo "Current workspace:"
+                        pwd
+
+                        echo ""
+                        echo "Workspace contents:"
+                        ls -la
+
+                        echo ""
+                        echo "Checking Helm directory:"
+                        ls -la helm || true
+
+                        echo ""
+                        echo "Checking Helm chart:"
+                        ls -la helm/devops-dashboard || true
+
+                        echo ""
                         echo "Deploying application with Helm..."
 
                         helm upgrade --install devops-dashboard-helm \
