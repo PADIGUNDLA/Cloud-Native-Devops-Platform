@@ -1,4 +1,5 @@
 pipeline {
+
     agent {
         label 'docker-agent'
     }
@@ -88,45 +89,46 @@ pipeline {
                 }
             }
         }
-stage('Trivy Security Scan') {
-    steps {
-        container('docker') {
-            sh '''
-                set -e
 
-                echo "===== Trivy Security Scan ====="
+        stage('Trivy Security Scan') {
+            steps {
+                container('docker') {
+                    sh '''
+                        set -e
 
-                echo "Installing Trivy..."
+                        echo "===== Trivy Security Scan ====="
 
-                apk add --no-cache curl
+                        echo "Installing Trivy..."
 
-                curl -sfL \
-                  https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-                  | sh -s -- -b /usr/local/bin
+                        apk add --no-cache curl
 
-                echo ""
-                echo "Trivy version:"
-                trivy --version
+                        curl -sfL \
+                          https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                          | sh -s -- -b /usr/local/bin
 
-                echo ""
-                echo "Scanning Docker image:"
-                echo "${IMAGE_NAME}:${IMAGE_TAG}"
+                        echo ""
+                        echo "Trivy version:"
+                        trivy --version
 
-                trivy image \
-                  --severity HIGH,CRITICAL \
-                  --exit-code 1 \
-                  ${IMAGE_NAME}:${IMAGE_TAG}
+                        echo ""
+                        echo "Scanning Docker image:"
+                        echo "${IMAGE_NAME}:${IMAGE_TAG}"
 
-                echo ""
-                echo "Trivy security scan passed."
-            '''
+                        trivy image \
+                          --severity HIGH,CRITICAL \
+                          --exit-code 1 \
+                          ${IMAGE_NAME}:${IMAGE_TAG}
+
+                        echo ""
+                        echo "Trivy security scan passed."
+                    '''
+                }
+            }
         }
-    }
-}
+
         stage('Docker Hub Login') {
             steps {
                 container('docker') {
-
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'dockerhub-credentials',
@@ -134,7 +136,6 @@ stage('Trivy Security Scan') {
                             passwordVariable: 'DOCKERHUB_TOKEN'
                         )
                     ]) {
-
                         sh '''
                             set -e
 
@@ -163,7 +164,6 @@ stage('Trivy Security Scan') {
         stage('Docker Push') {
             steps {
                 container('docker') {
-
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'dockerhub-credentials',
@@ -171,7 +171,6 @@ stage('Trivy Security Scan') {
                             passwordVariable: 'DOCKERHUB_TOKEN'
                         )
                     ]) {
-
                         sh '''
                             set -e
 
@@ -214,39 +213,7 @@ stage('Trivy Security Scan') {
                 }
             }
         }
-    }
 
-    post {
-        always {
-            container('docker') {
-                sh '''
-                    echo "Cleaning temporary Docker authentication data..."
-
-                    docker logout >/dev/null 2>&1 || true
-
-                    rm -f "$HOME/.docker/config.json" 2>/dev/null || true
-
-                    echo "Cleanup completed."
-                '''
-            }
-        }
-
-        success {
-            echo '========================================'
-            echo 'CI PIPELINE COMPLETED SUCCESSFULLY'
-            echo '========================================'
-            echo "Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-            echo "Docker image: ${IMAGE_NAME}:latest"
-        }
-
-        failure {
-            echo '========================================'
-            echo 'CI PIPELINE FAILED'
-            echo '========================================'
-            echo 'Check the failed stage above.'
-        }
-    }
-}
         stage('Helm Deploy') {
             steps {
                 container('docker') {
@@ -276,6 +243,20 @@ stage('Trivy Security Scan') {
                         echo ""
                         echo "Helm version:"
                         helm version
+
+                        echo ""
+                        echo "Installing kubectl..."
+
+                        curl -LO \
+                          https://dl.k8s.io/release/v1.34.12/bin/linux/amd64/kubectl
+
+                        chmod +x kubectl
+
+                        mv kubectl /usr/local/bin/kubectl
+
+                        echo ""
+                        echo "kubectl version:"
+                        kubectl version --client
 
                         echo ""
                         echo "Creating Kubernetes kubeconfig..."
@@ -325,13 +306,50 @@ stage('Trivy Security Scan') {
 
                         echo ""
                         echo "Helm release:"
+
                         helm list --namespace default
 
                         echo ""
                         echo "Application status:"
+
                         kubectl get deployment,service,ingress \
                           -n default
                     '''
                 }
             }
         }
+    }
+
+    post {
+
+        always {
+            container('docker') {
+                sh '''
+                    echo "Cleaning temporary Docker authentication data..."
+
+                    docker logout >/dev/null 2>&1 || true
+
+                    rm -f "$HOME/.docker/config.json" 2>/dev/null || true
+
+                    echo "Cleanup completed."
+                '''
+            }
+        }
+
+        success {
+            echo '========================================'
+            echo 'CI/CD PIPELINE COMPLETED SUCCESSFULLY'
+            echo '========================================'
+            echo "Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Docker image: ${IMAGE_NAME}:latest"
+            echo 'Helm deployment completed.'
+        }
+
+        failure {
+            echo '========================================'
+            echo 'CI/CD PIPELINE FAILED'
+            echo '========================================'
+            echo 'Check the failed stage above.'
+        }
+    }
+}
