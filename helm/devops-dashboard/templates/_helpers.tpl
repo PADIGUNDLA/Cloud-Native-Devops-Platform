@@ -6,14 +6,14 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
+Create the fully qualified application name.
+Use the Helm release name so Jenkins can manage the existing release resources.
 */}}
 {{- define "devops-dashboard.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 
