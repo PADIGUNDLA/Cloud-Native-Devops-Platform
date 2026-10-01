@@ -247,52 +247,91 @@ stage('Trivy Security Scan') {
         }
     }
 }
+        stage('Helm Deploy') {
+            steps {
+                container('docker') {
+                    sh '''
+                        set -e
 
-stage('Helm Deploy') {
-    steps {
-        container('docker') {
-            sh '''
-                set -e
+                        echo "===== Helm Deployment ====="
 
-                echo "===== Helm Deployment ====="
+                        echo ""
+                        echo "Installing required tools..."
 
-                echo "Installing Helm..."
+                        apk add --no-cache curl tar
 
-                apk add --no-cache curl tar
+                        echo ""
+                        echo "Installing Helm..."
 
-                curl -fsSL \
-                  https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz \
-                  -o /tmp/helm.tar.gz
+                        curl -fsSL \
+                          https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz \
+                          -o /tmp/helm.tar.gz
 
-                tar -xzf /tmp/helm.tar.gz -C /tmp
+                        tar -xzf /tmp/helm.tar.gz -C /tmp
 
-                mv /tmp/linux-amd64/helm /usr/local/bin/helm
+                        mv /tmp/linux-amd64/helm /usr/local/bin/helm
 
-                chmod +x /usr/local/bin/helm
+                        chmod +x /usr/local/bin/helm
 
-                echo ""
-                echo "Helm version:"
-                helm version
+                        echo ""
+                        echo "Helm version:"
+                        helm version
 
-                echo ""
-                echo "Deploying application with Helm..."
+                        echo ""
+                        echo "Creating Kubernetes kubeconfig..."
 
-                helm upgrade --install devops-dashboard-helm \
-                  ./helm/devops-dashboard \
-                  --namespace default \
-                  --set image.tag=${BUILD_NUMBER}
+                        export KUBECONFIG=/tmp/jenkins-kubeconfig
 
-                echo ""
-                echo "Helm deployment completed successfully."
+                        KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 
-                echo ""
-                echo "Helm release:"
-                helm list --namespace default
+                        kubectl config set-cluster kubernetes \
+                          --server=https://kubernetes.default.svc \
+                          --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+                          --embed-certs=true
 
-                echo ""
-                echo "Application pods:"
-                kubectl get pods -n default -l app.kubernetes.io/instance=devops-dashboard-helm
-            '''
+                        kubectl config set-credentials jenkins-agent \
+                          --token="$KUBE_TOKEN"
+
+                        kubectl config set-context jenkins-agent \
+                          --cluster=kubernetes \
+                          --user=jenkins-agent \
+                          --namespace=default
+
+                        kubectl config use-context jenkins-agent
+
+                        echo ""
+                        echo "Testing Kubernetes authentication..."
+
+                        kubectl get namespace default
+
+                        echo ""
+                        echo "Deploying application with Helm..."
+
+                        helm upgrade --install devops-dashboard-helm \
+                          ./helm/devops-dashboard \
+                          --namespace default \
+                          --set image.tag=${BUILD_NUMBER}
+
+                        echo ""
+                        echo "Waiting for deployment rollout..."
+
+                        kubectl rollout status \
+                          deployment/devops-dashboard-helm \
+                          --namespace default \
+                          --timeout=180s
+
+                        echo ""
+                        echo "Helm deployment completed successfully."
+
+                        echo ""
+                        echo "Helm release:"
+                        helm list --namespace default
+
+                        echo ""
+                        echo "Application status:"
+                        kubectl get deployment,service,ingress \
+                          -n default
+                    '''
+                }
+            }
         }
-    }
-}
