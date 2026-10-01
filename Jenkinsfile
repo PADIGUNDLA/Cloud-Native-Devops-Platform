@@ -247,3 +247,52 @@ stage('Trivy Security Scan') {
         }
     }
 }
+
+stage('Helm Deploy') {
+    steps {
+        container('docker') {
+            sh '''
+                set -e
+
+                echo "===== Helm Deployment ====="
+
+                echo "Installing Helm..."
+
+                apk add --no-cache curl tar
+
+                curl -fsSL \
+                  https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz \
+                  -o /tmp/helm.tar.gz
+
+                tar -xzf /tmp/helm.tar.gz -C /tmp
+
+                mv /tmp/linux-amd64/helm /usr/local/bin/helm
+
+                chmod +x /usr/local/bin/helm
+
+                echo ""
+                echo "Helm version:"
+                helm version
+
+                echo ""
+                echo "Deploying application with Helm..."
+
+                helm upgrade --install devops-dashboard-helm \
+                  ./helm/devops-dashboard \
+                  --namespace default \
+                  --set image.tag=${BUILD_NUMBER}
+
+                echo ""
+                echo "Helm deployment completed successfully."
+
+                echo ""
+                echo "Helm release:"
+                helm list --namespace default
+
+                echo ""
+                echo "Application pods:"
+                kubectl get pods -n default -l app.kubernetes.io/instance=devops-dashboard-helm
+            '''
+        }
+    }
+}
