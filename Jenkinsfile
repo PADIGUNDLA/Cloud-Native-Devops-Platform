@@ -25,6 +25,7 @@ pipeline {
 
                         echo "===== Docker Build ====="
 
+                        echo ""
                         echo "Waiting for Docker daemon..."
 
                         READY=false
@@ -263,15 +264,23 @@ pipeline {
 
                         export KUBECONFIG=/tmp/jenkins-kubeconfig
 
-                        KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-
                         kubectl config set-cluster kubernetes \
                           --server=https://kubernetes.default.svc \
                           --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
                           --embed-certs=true
 
+                        # Prevent the ServiceAccount token from appearing
+                        # in Jenkins console output.
+                        set +x
+
+                        KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
                         kubectl config set-credentials jenkins-agent \
                           --token="$KUBE_TOKEN"
+
+                        unset KUBE_TOKEN
+
+                        set -x
 
                         kubectl config set-context jenkins-agent \
                           --cluster=kubernetes \
@@ -283,7 +292,7 @@ pipeline {
                         echo ""
                         echo "Testing Kubernetes authentication..."
 
-                        kubectl get namespace default
+                        kubectl get deployment -n default
 
                         echo ""
                         echo "Deploying application with Helm..."
